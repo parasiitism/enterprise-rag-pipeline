@@ -6,12 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "enterprise-rag"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "langchain-core>=1.1,<2",
+  "langchain-text-splitters>=1.0,<2",
+]
 
 [project.optional-dependencies]
 dev = [
   "pytest",
   "ruff",
+]
+gemini = [
+  "langchain-google-genai>=4.2,<5",
 ]
 
 [tool.pytest.ini_options]
