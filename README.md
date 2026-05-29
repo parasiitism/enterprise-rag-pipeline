@@ -1,85 +1,94 @@
 # Enterprise RAG Pipeline for 10M+ Documents
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![RAG](https://img.shields.io/badge/RAG-Pipeline-7C3AED?style=for-the-badge)
+![LangChain](https://img.shields.io/badge/LangChain-Chunking-1C3C3C?style=for-the-badge)
 ![Wikipedia](https://img.shields.io/badge/Data-Wikipedia-000000?style=for-the-badge&logo=wikipedia&logoColor=white)
-![Status](https://img.shields.io/badge/Status-Step%201%20Ingestion-22C55E?style=for-the-badge)
-![Tests](https://img.shields.io/badge/Tests-Pytest-F97316?style=for-the-badge)
+![RAG](https://img.shields.io/badge/RAG-Evidence%20Pipeline-7C3AED?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Step%202%20Chunking-22C55E?style=for-the-badge)
 
-I am building this project as a practical, enterprise-style RAG pipeline.
+I am building this as a practical enterprise-style RAG pipeline, one layer at a time.
 
-The goal is not to make a small demo that sends a few chunks to an LLM. The goal is to design the kind of pipeline that can eventually handle **millions of documents**, keep the data flow explainable, and prepare clean evidence for retrieval.
+The goal is not to make a small "chat with PDF" demo. The goal is to build the kind of pipeline that can eventually handle millions of documents, keep every transformation traceable, and prepare clean evidence for retrieval.
 
-Right now I am focused on the most important foundation:
+My rule for this project:
 
-> Ingest raw documents safely, normalize them into a standard format, and make every later step work from that clean format.
+> Do not let the LLM become responsible for fixing a weak data pipeline.
 
-## Why I Am Building This
+## Why This Exists
 
-Most RAG examples skip the hard part.
+Most RAG failures start before generation.
 
-They start with:
+Bad ingestion creates bad documents.
+Bad documents create bad chunks.
+Bad chunks create weak retrieval.
+Weak retrieval creates confident wrong answers.
+
+So I am building the foundation first:
 
 ```text
-documents → embeddings → vector database → LLM
+raw source -> canonical document -> LangChain document -> traceable chunks -> retrieval later
 ```
 
-But at real scale, the first problem is not the model.
-
-The first problem is data preparation:
-
-- Can I read huge files without loading them into memory?
-- Can I convert messy source data into one clean internal format?
-- Can I track where each document came from?
-- Can I save reproducible canonical documents?
-- Can I audit what was ingested?
-
-This repo is my step-by-step implementation of that pipeline.
+No shortcut. No hidden magic.
 
 ## Current Progress
 
-### Completed: Step 1 v1 - Wikipedia Ingestion
+### Step 1: Ingest and Normalize
 
-Current source:
+Completed v1 with the Wikipedia dump.
+
+The raw source is:
 
 ```text
 data/raw/wikipedia/enwiki-latest-pages-articles-multistream.xml.bz2
 ```
 
-That raw file is intentionally **not committed** to GitHub because it is huge.
+That file is intentionally ignored by Git because it is huge.
 
-Current working flow:
+Step 1 flow:
 
 ```text
 Wikipedia XML BZ2 dump
-  ↓
-stream safely with iterparse
-  ↓
-WikipediaPage
-  ↓
-CanonicalDocument
-  ↓
-JSON files in data/canonical/wikipedia
-  ↓
-manifest records in data/manifests
+  -> streaming XML reader
+  -> WikipediaPage
+  -> CanonicalDocument
+  -> data/canonical/wikipedia/*.json
+  -> data/manifests/wikipedia_manifest.jsonl
 ```
 
-## Pipeline Workflow
+### Step 2: Chunking
+
+Current Step 2 work:
+
+```text
+CanonicalDocument
+  -> LangChain Document
+  -> RecursiveCharacterTextSplitter
+  -> chunk records
+  -> data/chunks/wikipedia/*.json
+  -> data/manifests/chunk_manifest.jsonl
+```
+
+This is where the pipeline starts becoming retrieval-ready.
+
+## Workflow
 
 ```mermaid
 flowchart TD
-    A["Raw Wikipedia Dump<br/>.xml.bz2"] --> B["Streaming Reader<br/>dump_reader.py"]
-    B --> C["WikipediaPage<br/>source-specific model"]
-    C --> D["Converter<br/>converter.py"]
-    D --> E["CanonicalDocument<br/>standard internal model"]
-    E --> F["JSON Storage<br/>data/canonical/wikipedia"]
-    E --> G["Ingestion Manifest<br/>data/manifests/*.jsonl"]
-    F --> H["Next: Chunking"]
-    H --> I["Next: BM25 Index"]
-    H --> J["Next: Embeddings"]
-    I --> K["Later: Hybrid Retrieval"]
-    J --> K
-    K --> L["Later: Evidence-backed Answering"]
+    A["Wikipedia .xml.bz2 Dump"] --> B["dump_reader.py<br/>Stream pages safely"]
+    B --> C["WikipediaPage<br/>Source-specific model"]
+    C --> D["converter.py<br/>Normalize source fields"]
+    D --> E["CanonicalDocument<br/>Internal document contract"]
+    E --> F["document_store.py<br/>Load saved canonical JSON"]
+    E --> G["langchain_adapters.py<br/>Convert to LangChain Document"]
+    G --> H["chunker.py<br/>RecursiveCharacterTextSplitter"]
+    H --> I["chunk_store.py<br/>Save chunk JSON"]
+    I --> J["chunk_documents.py<br/>Batch chunking script"]
+    J --> K["Next: BM25 keyword index"]
+    J --> L["Next: embeddings + vector index"]
+    K --> M["Later: hybrid retrieval"]
+    L --> M
+    M --> N["Later: grounded answers with citations"]
 ```
 
 ## Project Structure
@@ -89,44 +98,36 @@ enterprise-rag-pipeline/
   src/
     enterprise_rag/
       documents.py
+      document_store.py
+      langchain_adapters.py
+      chunker.py
+      chunk_store.py
+      chunk_documents.py
       wikipedia/
         dump_reader.py
         converter.py
         ingest.py
   tests/
     test_documents.py
-    test_project_setup.py
+    test_langchain_adapters.py
+    test_chunker.py
+    test_chunk_documents.py
     test_wikipedia_converter.py
     test_wikipedia_dump_reader.py
   data/
     raw/
     canonical/
+    chunks/
     manifests/
-  pyproject.toml
-  README.md
 ```
 
-## Core Concepts
+## Core Ideas
 
-### 1. WikipediaPage
+### CanonicalDocument
 
-`WikipediaPage` is the source-specific model.
+This is the internal document format.
 
-It represents one page extracted from the Wikipedia dump.
-
-```text
-title
-page_id
-revision_id
-timestamp
-text
-```
-
-### 2. CanonicalDocument
-
-`CanonicalDocument` is the internal format for the whole RAG system.
-
-Later, PDFs, emails, CSV files, tickets, and API exports should all become this same structure.
+Every source should eventually become this shape:
 
 ```text
 document_id
@@ -139,54 +140,53 @@ text
 metadata
 ```
 
-This separation matters because the rest of the pipeline should not care whether the original source was Wikipedia, a PDF, or an internal document.
+Wikipedia, PDFs, emails, support tickets, and API exports should all become canonical documents before chunking or retrieval.
+
+### LangChain Document Adapter
+
+I am using LangChain where it helps, but I am not letting it own the whole architecture.
+
+The adapter keeps my metadata and lineage intact while allowing LangChain tooling to work on the content.
+
+### Traceable Chunks
+
+Every chunk keeps the original document identity:
+
+```text
+chunk_id
+document_id
+source
+source_id
+title
+chunk_index
+text
+metadata
+```
+
+This matters because retrieval without traceability is hard to debug and hard to trust.
 
 ## Setup
-
-Create and activate the virtual environment:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-Install the project:
-
-```powershell
 python -m pip install -e ".[dev]"
 ```
 
-If PowerShell blocks activation, run commands directly through the virtual environment:
+If activation is blocked:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-## Run Tests
+## Run Checks
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ruff check .
 ```
 
-Current expected result:
-
-```text
-4 passed
-All checks passed
-```
-
-## Preview The Wikipedia Dump
-
-This reads a few pages from the compressed dump without extracting the full file:
-
-```powershell
-.\.venv\Scripts\python.exe src\enterprise_rag\wikipedia\dump_reader.py data\raw\wikipedia\enwiki-latest-pages-articles-multistream.xml.bz2 --limit 3
-```
-
 ## Ingest Wikipedia Pages
-
-Run a small ingestion first:
 
 ```powershell
 .\.venv\Scripts\python.exe src\enterprise_rag\wikipedia\ingest.py data\raw\wikipedia\enwiki-latest-pages-articles-multistream.xml.bz2 --limit 10
@@ -199,63 +199,54 @@ data/canonical/wikipedia/*.json
 data/manifests/wikipedia_manifest.jsonl
 ```
 
-Important:
+## Chunk Canonical Documents
+
+```powershell
+.\.venv\Scripts\python.exe src\enterprise_rag\chunk_documents.py data\canonical\wikipedia --limit 3
+```
+
+Output:
 
 ```text
-data/ is ignored by Git.
-The downloaded Wikipedia dump and generated canonical JSON files should not be committed.
+data/chunks/wikipedia/*.json
+data/manifests/chunk_manifest.jsonl
 ```
 
 ## Roadmap
 
-### Step 1 - Ingest and Normalize
+### Done
 
-Status: in progress, v1 working.
-
-- Stream huge source files safely
-- Extract source-specific records
-- Convert to canonical documents
-- Save canonical JSON
+- Stream huge Wikipedia dump safely
+- Convert raw pages into canonical documents
+- Save canonical documents as JSON
 - Write ingestion manifest
+- Add LangChain document adapter
+- Split canonical documents into traceable chunks
+- Save chunk JSON and chunk manifest
 
-### Step 2 - Chunking
+### Next
 
-Next target.
+- Build a BM25 keyword index over chunks
+- Add exact-match retrieval for names, IDs, and rare terms
+- Add Gemini embeddings later
+- Add vector search
+- Combine BM25 + vector retrieval
+- Add evidence packs and citations
 
-- Load canonical documents
-- Split long documents into smaller chunks
-- Preserve document lineage
-- Store chunk metadata
+## My Current Mental Model
 
-### Step 3 - BM25 Index
+RAG is not:
 
-- Build keyword search over chunks
-- Support exact terms, IDs, names, and rare keywords
+```text
+LLM + vector database
+```
 
-### Step 4 - Embeddings
+RAG is:
 
-- Add embedding generation
-- Store vectors
-- Prepare semantic search
-
-### Step 5 - Hybrid Retrieval
-
-- Combine BM25 and vector search
-- Merge candidates
-- Rank evidence more carefully
-
-### Step 6 - Evidence-Backed Answering
-
-- Use retrieved chunks as evidence
-- Generate answers only from context
-- Add citations and fallback behavior
-
-## My Engineering Rule For This Project
-
-I am building this slowly on purpose.
-
-For a 10M+ document RAG system, shortcuts become expensive later. The foundation needs to be simple, testable, and clear before adding embeddings, vector databases, reranking, or LLM calls.
+```text
+clean documents + traceable chunks + strong retrieval + grounded generation
+```
 
 One-line takeaway:
 
-> A reliable RAG system starts before retrieval. It starts with clean, traceable, canonical documents.
+> The answer quality is limited by the evidence pipeline long before the LLM starts writing.
