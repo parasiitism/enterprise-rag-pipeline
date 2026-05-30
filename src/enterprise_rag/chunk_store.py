@@ -31,3 +31,15 @@ def save_chunk_record(record: dict[str, object], output_dir: Path) -> Path:
     )
 
     return output_path
+
+def load_chunk_records(input_dir: Path, limit: int | None = None) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+
+    for path in sorted(input_dir.rglob("*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        records.append(payload)
+
+        if limit is not None and len(records) >= limit:
+            break
+
+    return records
