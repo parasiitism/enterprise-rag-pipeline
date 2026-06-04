@@ -2,31 +2,32 @@
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![LangChain](https://img.shields.io/badge/LangChain-Chunking-1C3C3C?style=for-the-badge)
-![Wikipedia](https://img.shields.io/badge/Data-Wikipedia-000000?style=for-the-badge&logo=wikipedia&logoColor=white)
-![RAG](https://img.shields.io/badge/RAG-Evidence%20Pipeline-7C3AED?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Step%202%20Chunking-22C55E?style=for-the-badge)
+![BM25](https://img.shields.io/badge/Retrieval-BM25-F97316?style=for-the-badge)
+![Evaluation](https://img.shields.io/badge/Eval-Hit%40K-2563EB?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Step%205.1%20Embedding%20Interface-22C55E?style=for-the-badge)
 
 I am building this as a practical enterprise-style RAG pipeline, one layer at a time.
 
-The goal is not to make a small "chat with PDF" demo. The goal is to build the kind of pipeline that can eventually handle millions of documents, keep every transformation traceable, and prepare clean evidence for retrieval.
+This is not a small "chat with PDF" demo. The goal is to build the foundation for a system that can eventually handle millions of documents, keep every transformation traceable, and reduce hallucination by improving evidence quality before generation starts.
 
 My rule for this project:
 
-> Do not let the LLM become responsible for fixing a weak data pipeline.
+> The LLM should only answer from evidence the pipeline can retrieve, rank, evaluate, and trace.
 
 ## Why This Exists
 
-Most RAG failures start before generation.
+Most RAG failures do not start inside the model.
 
-Bad ingestion creates bad documents.
-Bad documents create bad chunks.
-Bad chunks create weak retrieval.
-Weak retrieval creates confident wrong answers.
-
-So I am building the foundation first:
+They start earlier:
 
 ```text
-raw source -> canonical document -> LangChain document -> traceable chunks -> retrieval later
+messy ingestion -> weak chunks -> poor retrieval -> bad context -> confident wrong answer
+```
+
+So I am building the pipeline from the ground up:
+
+```text
+raw source -> canonical document -> traceable chunks -> retrieval -> evaluation -> embeddings -> hybrid search
 ```
 
 No shortcut. No hidden magic.
@@ -36,16 +37,6 @@ No shortcut. No hidden magic.
 ### Step 1: Ingest and Normalize
 
 Completed v1 with the Wikipedia dump.
-
-The raw source is:
-
-```text
-data/raw/wikipedia/enwiki-latest-pages-articles-multistream.xml.bz2
-```
-
-That file is intentionally ignored by Git because it is huge.
-
-Step 1 flow:
 
 ```text
 Wikipedia XML BZ2 dump
@@ -58,37 +49,84 @@ Wikipedia XML BZ2 dump
 
 ### Step 2: Chunking
 
-Current Step 2 work:
+Completed with LangChain text splitters while keeping my own document contracts.
 
 ```text
 CanonicalDocument
   -> LangChain Document
   -> RecursiveCharacterTextSplitter
-  -> chunk records
+  -> traceable chunk records
   -> data/chunks/wikipedia/*.json
   -> data/manifests/chunk_manifest.jsonl
 ```
 
-This is where the pipeline starts becoming retrieval-ready.
+### Step 3: BM25 Retrieval
 
-## Workflow
+Completed first-pass lexical retrieval over saved chunks.
+
+BM25 matters because embeddings alone can miss exact identifiers, error codes, names, clause numbers, and rare terms.
+
+### Step 4: Retrieval Evaluation
+
+Completed a Hit@K evaluation layer and CLI.
+
+```text
+retrieval_eval.jsonl
+  -> run retriever
+  -> compare expected document/chunk
+  -> calculate Hit@K
+  -> print misses for debugging
+```
+
+### Step 5.1: Embedding Provider Interface
+
+Completed the embedding abstraction layer.
+
+The pipeline should not hardcode Gemini, OpenAI, or any specific provider into the core retrieval code. Instead, it now has a provider interface:
+
+```text
+EmbeddingRequest -> EmbeddingProvider -> EmbeddingResult
+```
+
+This makes the system easier to test, swap, observe, and scale.
+
+## Colored Workflow
 
 ```mermaid
 flowchart TD
-    A["Wikipedia .xml.bz2 Dump"] --> B["dump_reader.py<br/>Stream pages safely"]
-    B --> C["WikipediaPage<br/>Source-specific model"]
-    C --> D["converter.py<br/>Normalize source fields"]
-    D --> E["CanonicalDocument<br/>Internal document contract"]
-    E --> F["document_store.py<br/>Load saved canonical JSON"]
-    E --> G["langchain_adapters.py<br/>Convert to LangChain Document"]
-    G --> H["chunker.py<br/>RecursiveCharacterTextSplitter"]
-    H --> I["chunk_store.py<br/>Save chunk JSON"]
-    I --> J["chunk_documents.py<br/>Batch chunking script"]
-    J --> K["Next: BM25 keyword index"]
-    J --> L["Next: embeddings + vector index"]
-    K --> M["Later: hybrid retrieval"]
+    A["Raw Wikipedia Dump<br/>26GB .xml.bz2"] --> B["Streaming Reader<br/>dump_reader.py"]
+    B --> C["Source Model<br/>WikipediaPage"]
+    C --> D["Normalizer<br/>converter.py"]
+    D --> E["CanonicalDocument<br/>source-neutral contract"]
+    E --> F["Chunking<br/>LangChain splitter"]
+    F --> G["Chunk Store<br/>traceable JSON chunks"]
+    G --> H["BM25 Retrieval<br/>keyword precision"]
+    H --> I["Retrieval Eval<br/>Hit@K + misses"]
+    G --> J["Embedding Interface<br/>provider-agnostic contract"]
+    J --> K["Next: Gemini Provider<br/>batch embeddings"]
+    K --> L["Next: Vector Index<br/>semantic retrieval"]
+    H --> M["Later: Hybrid Retrieval<br/>BM25 + vectors"]
     L --> M
-    M --> N["Later: grounded answers with citations"]
+    M --> N["Later: Evidence Packs<br/>reranking + citations"]
+    N --> O["Later: Grounded Answers<br/>answer only from evidence"]
+
+    classDef raw fill:#FEF3C7,stroke:#D97706,color:#111827,stroke-width:2px;
+    classDef ingest fill:#DBEAFE,stroke:#2563EB,color:#111827,stroke-width:2px;
+    classDef normalize fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px;
+    classDef chunk fill:#DCFCE7,stroke:#16A34A,color:#111827,stroke-width:2px;
+    classDef retrieval fill:#FFEDD5,stroke:#EA580C,color:#111827,stroke-width:2px;
+    classDef eval fill:#E0F2FE,stroke:#0284C7,color:#111827,stroke-width:2px;
+    classDef embed fill:#FCE7F3,stroke:#DB2777,color:#111827,stroke-width:2px;
+    classDef later fill:#F3F4F6,stroke:#4B5563,color:#111827,stroke-width:2px;
+
+    class A raw;
+    class B,C ingest;
+    class D,E normalize;
+    class F,G chunk;
+    class H retrieval;
+    class I eval;
+    class J,K,L embed;
+    class M,N,O later;
 ```
 
 ## Project Structure
@@ -103,31 +141,39 @@ enterprise-rag-pipeline/
       chunker.py
       chunk_store.py
       chunk_documents.py
+      search_chunks.py
+      evaluate_retrieval.py
+      embeddings/
+        models.py
+        providers.py
+      evaluation/
+        dataset.py
+        models.py
+        retrieval_eval.py
+      retrieval/
+        bm25.py
+        models.py
+        tokenizer.py
       wikipedia/
         dump_reader.py
         converter.py
         ingest.py
   tests/
-    test_documents.py
-    test_langchain_adapters.py
-    test_chunker.py
-    test_chunk_documents.py
-    test_wikipedia_converter.py
-    test_wikipedia_dump_reader.py
   data/
     raw/
     canonical/
     chunks/
+    evals/
     manifests/
 ```
+
+The `data/` directory is intentionally ignored by Git because the local Wikipedia dump and generated artifacts are large.
 
 ## Core Ideas
 
 ### CanonicalDocument
 
-This is the internal document format.
-
-Every source should eventually become this shape:
+Every source should eventually become one internal document shape:
 
 ```text
 document_id
@@ -142,15 +188,9 @@ metadata
 
 Wikipedia, PDFs, emails, support tickets, and API exports should all become canonical documents before chunking or retrieval.
 
-### LangChain Document Adapter
-
-I am using LangChain where it helps, but I am not letting it own the whole architecture.
-
-The adapter keeps my metadata and lineage intact while allowing LangChain tooling to work on the content.
-
 ### Traceable Chunks
 
-Every chunk keeps the original document identity:
+Every chunk keeps lineage back to the original document:
 
 ```text
 chunk_id
@@ -164,6 +204,30 @@ metadata
 ```
 
 This matters because retrieval without traceability is hard to debug and hard to trust.
+
+### Retrieval Evaluation
+
+Retrieval is measured before generation.
+
+The current metric is Hit@K:
+
+```text
+Did the expected document or chunk appear in the top K results?
+```
+
+This is the first quality gate before adding vector search and generation.
+
+### Embedding Provider Interface
+
+The embedding layer is provider-agnostic.
+
+```text
+Gemini provider
+OpenAI provider
+local provider
+```
+
+All should satisfy the same interface, so the rest of the RAG pipeline does not care which embedding model is being used.
 
 ## Setup
 
@@ -212,6 +276,25 @@ data/chunks/wikipedia/*.json
 data/manifests/chunk_manifest.jsonl
 ```
 
+## Search Chunks with BM25
+
+```powershell
+.\.venv\Scripts\python.exe -m enterprise_rag.search_chunks data\chunks\wikipedia "python programming language" --top-k 5
+```
+
+## Evaluate Retrieval
+
+```powershell
+.\.venv\Scripts\python.exe -m enterprise_rag.evaluate_retrieval data\chunks\wikipedia data\evals\retrieval_eval.jsonl --top-k 5 --show-misses
+```
+
+Expected eval JSONL shape:
+
+```jsonl
+{"query":"Python programming language","expected_document_id":"wikipedia:23862"}
+{"query":"Artificial intelligence","expected_document_id":"wikipedia:1164"}
+```
+
 ## Roadmap
 
 ### Done
@@ -223,14 +306,19 @@ data/manifests/chunk_manifest.jsonl
 - Add LangChain document adapter
 - Split canonical documents into traceable chunks
 - Save chunk JSON and chunk manifest
+- Add BM25 keyword retrieval
+- Add retrieval evaluation with Hit@K
+- Add retrieval evaluation CLI
+- Add embedding provider interface
 
 ### Next
 
-- Build a BM25 keyword index over chunks
-- Add exact-match retrieval for names, IDs, and rare terms
-- Add Gemini embeddings later
+- Implement Gemini embedding provider
+- Batch embed chunk records
+- Persist vectors with metadata
 - Add vector search
 - Combine BM25 + vector retrieval
+- Add reranking
 - Add evidence packs and citations
 
 ## My Current Mental Model
@@ -244,7 +332,7 @@ LLM + vector database
 RAG is:
 
 ```text
-clean documents + traceable chunks + strong retrieval + grounded generation
+clean documents + traceable chunks + measurable retrieval + provider-agnostic embeddings + grounded generation
 ```
 
 One-line takeaway:
