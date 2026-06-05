@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 from langchain_core.documents import Document
@@ -32,14 +33,19 @@ def save_chunk_record(record: dict[str, object], output_dir: Path) -> Path:
 
     return output_path
 
-def load_chunk_records(input_dir: Path, limit: int | None = None) -> list[dict[str, object]]:
-    records: list[dict[str, object]] = []
+
+def iter_chunk_records(input_dir: Path, limit: int | None = None) -> Iterator[dict[str, object]]:
+    count = 0
 
     for path in sorted(input_dir.rglob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
-        records.append(payload)
+        yield payload
 
-        if limit is not None and len(records) >= limit:
+        count += 1
+
+        if limit is not None and count >= limit:
             break
 
-    return records
+
+def load_chunk_records(input_dir: Path, limit: int | None = None) -> list[dict[str, object]]:
+    return list(iter_chunk_records(input_dir=input_dir, limit=limit))

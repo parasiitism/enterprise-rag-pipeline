@@ -20,6 +20,10 @@ dev = [
 gemini = [
   "langchain-google-genai>=4.2,<5",
 ]
+huggingface = [
+  "sentence-transformers>=5.1,<6",
+  "truststore>=0.10,<1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

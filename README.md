@@ -4,7 +4,7 @@
 ![LangChain](https://img.shields.io/badge/LangChain-Chunking-1C3C3C?style=for-the-badge)
 ![BM25](https://img.shields.io/badge/Retrieval-BM25-F97316?style=for-the-badge)
 ![Evaluation](https://img.shields.io/badge/Eval-Hit%40K-2563EB?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Step%205.1%20Embedding%20Interface-22C55E?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Step%205.3%20Batch%20Embeddings-22C55E?style=for-the-badge)
 
 I am building this as a practical enterprise-style RAG pipeline, one layer at a time.
 
@@ -82,13 +82,40 @@ retrieval_eval.jsonl
 
 Completed the embedding abstraction layer.
 
-The pipeline should not hardcode Gemini, OpenAI, or any specific provider into the core retrieval code. Instead, it now has a provider interface:
+The pipeline should not hardcode Hugging Face, Gemini, OpenAI, or any specific provider into the core retrieval code. Instead, it now has a provider interface:
 
 ```text
 EmbeddingRequest -> EmbeddingProvider -> EmbeddingResult
 ```
 
 This makes the system easier to test, swap, observe, and scale.
+
+### Step 5.2: Hugging Face Embedding Provider
+
+Completed the first open-source embedding provider.
+
+The default model is:
+
+```text
+BAAI/bge-small-en-v1.5
+```
+
+This gives us a retrieval-focused local embedding path before adding vector search.
+
+### Step 5.3: Batch Embed Chunk Records
+
+Completed the first batch embedding script.
+
+```text
+data/chunks/wikipedia/*.json
+  -> EmbeddingRequest batches
+  -> HuggingFaceEmbeddingProvider
+  -> EmbeddingResult
+  -> data/embeddings/wikipedia/*.json
+  -> data/manifests/embedding_manifest.jsonl
+```
+
+This step turns retrieval-ready chunks into vector-search-ready records while preserving chunk and document lineage.
 
 ## Colored Workflow
 
@@ -103,10 +130,11 @@ flowchart TD
     G --> H["BM25 Retrieval<br/>keyword precision"]
     H --> I["Retrieval Eval<br/>Hit@K + misses"]
     G --> J["Embedding Interface<br/>provider-agnostic contract"]
-    J --> K["Next: Gemini Provider<br/>batch embeddings"]
-    K --> L["Next: Vector Index<br/>semantic retrieval"]
+    J --> K["Hugging Face Provider<br/>BAAI/bge-small-en-v1.5"]
+    K --> L["Batch Embeddings<br/>chunk vectors + metadata"]
+    L --> P["Next: Vector Index<br/>semantic retrieval"]
     H --> M["Later: Hybrid Retrieval<br/>BM25 + vectors"]
-    L --> M
+    P --> M
     M --> N["Later: Evidence Packs<br/>reranking + citations"]
     N --> O["Later: Grounded Answers<br/>answer only from evidence"]
 
@@ -125,7 +153,7 @@ flowchart TD
     class F,G chunk;
     class H retrieval;
     class I eval;
-    class J,K,L embed;
+    class J,K,L,P embed;
     class M,N,O later;
 ```
 
@@ -141,9 +169,12 @@ enterprise-rag-pipeline/
       chunker.py
       chunk_store.py
       chunk_documents.py
+      embedding_store.py
+      embed_chunks.py
       search_chunks.py
       evaluate_retrieval.py
       embeddings/
+        huggingface.py
         models.py
         providers.py
       evaluation/
@@ -163,6 +194,7 @@ enterprise-rag-pipeline/
     raw/
     canonical/
     chunks/
+    embeddings/
     evals/
     manifests/
 ```
@@ -224,6 +256,7 @@ The embedding layer is provider-agnostic.
 ```text
 Gemini provider
 OpenAI provider
+Hugging Face provider
 local provider
 ```
 
@@ -235,6 +268,12 @@ All should satisfy the same interface, so the rest of the RAG pipeline does not 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+```
+
+For local Hugging Face embeddings:
+
+```powershell
+python -m pip install -e ".[dev,huggingface]"
 ```
 
 If activation is blocked:
@@ -295,6 +334,27 @@ Expected eval JSONL shape:
 {"query":"Artificial intelligence","expected_document_id":"wikipedia:1164"}
 ```
 
+## Embed Chunks
+
+First create chunks:
+
+```powershell
+.\.venv\Scripts\python.exe -m enterprise_rag.chunk_documents data\canonical\wikipedia --limit 5
+```
+
+Then embed a small sample:
+
+```powershell
+.\.venv\Scripts\python.exe -m enterprise_rag.embed_chunks data\chunks\wikipedia --limit 5 --batch-size 2
+```
+
+Output:
+
+```text
+data/embeddings/wikipedia/*.json
+data/manifests/embedding_manifest.jsonl
+```
+
 ## Roadmap
 
 ### Done
@@ -310,12 +370,12 @@ Expected eval JSONL shape:
 - Add retrieval evaluation with Hit@K
 - Add retrieval evaluation CLI
 - Add embedding provider interface
+- Add Hugging Face embedding provider
+- Batch embed chunk records
+- Persist vectors with metadata
 
 ### Next
 
-- Implement Gemini embedding provider
-- Batch embed chunk records
-- Persist vectors with metadata
 - Add vector search
 - Combine BM25 + vector retrieval
 - Add reranking
