@@ -24,6 +24,10 @@ huggingface = [
   "sentence-transformers>=5.1,<6",
   "truststore>=0.10,<1",
 ]
+vector = [
+  "hnswlib>=0.8,<1",
+  "numpy>=1.26",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,8 +3,9 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![LangChain](https://img.shields.io/badge/LangChain-Chunking-1C3C3C?style=for-the-badge)
 ![BM25](https://img.shields.io/badge/Retrieval-BM25-F97316?style=for-the-badge)
+![HNSW](https://img.shields.io/badge/Vector%20Search-HNSW-DB2777?style=for-the-badge)
 ![Evaluation](https://img.shields.io/badge/Eval-Hit%40K-2563EB?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Step%205.3%20Batch%20Embeddings-22C55E?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Step%206.2%20HNSW%20Vector%20Index-22C55E?style=for-the-badge)
 
 I am building this as a practical enterprise-style RAG pipeline, one layer at a time.
 
@@ -117,6 +118,31 @@ data/chunks/wikipedia/*.json
 
 This step turns retrieval-ready chunks into vector-search-ready records while preserving chunk and document lineage.
 
+### Step 6.1: Vector Index Interface
+
+Completed the vector search boundary.
+
+The RAG pipeline should not depend directly on one vector engine. It should depend on a small interface:
+
+```text
+VectorRecord -> VectorIndex -> VectorSearchResult
+```
+
+This lets me start with local HNSW and still keep a clean path to FAISS, Qdrant, Milvus, or Pinecone later.
+
+### Step 6.2: HNSW Vector Index
+
+Completed the first local ANN vector index implementation.
+
+```text
+saved embedding vectors
+  -> VectorRecord
+  -> HNSWVectorIndex
+  -> semantic top-k results
+```
+
+HNSW gives the project a scalable semantic retrieval path without jumping straight into external vector database infrastructure.
+
 ## Colored Workflow
 
 ```mermaid
@@ -132,9 +158,10 @@ flowchart TD
     G --> J["Embedding Interface<br/>provider-agnostic contract"]
     J --> K["Hugging Face Provider<br/>BAAI/bge-small-en-v1.5"]
     K --> L["Batch Embeddings<br/>chunk vectors + metadata"]
-    L --> P["Next: Vector Index<br/>semantic retrieval"]
-    H --> M["Later: Hybrid Retrieval<br/>BM25 + vectors"]
-    P --> M
+    L --> P["VectorIndex Interface<br/>swappable vector boundary"]
+    P --> Q["HNSW Vector Index<br/>local ANN search"]
+    H --> M["Next: Hybrid Retrieval<br/>BM25 + HNSW"]
+    Q --> M
     M --> N["Later: Evidence Packs<br/>reranking + citations"]
     N --> O["Later: Grounded Answers<br/>answer only from evidence"]
 
@@ -145,6 +172,7 @@ flowchart TD
     classDef retrieval fill:#FFEDD5,stroke:#EA580C,color:#111827,stroke-width:2px;
     classDef eval fill:#E0F2FE,stroke:#0284C7,color:#111827,stroke-width:2px;
     classDef embed fill:#FCE7F3,stroke:#DB2777,color:#111827,stroke-width:2px;
+    classDef vector fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px;
     classDef later fill:#F3F4F6,stroke:#4B5563,color:#111827,stroke-width:2px;
 
     class A raw;
@@ -153,7 +181,8 @@ flowchart TD
     class F,G chunk;
     class H retrieval;
     class I eval;
-    class J,K,L,P embed;
+    class J,K,L embed;
+    class P,Q vector;
     class M,N,O later;
 ```
 
@@ -185,6 +214,10 @@ enterprise-rag-pipeline/
         bm25.py
         models.py
         tokenizer.py
+      vector_store/
+        hnsw.py
+        indexes.py
+        models.py
       wikipedia/
         dump_reader.py
         converter.py
@@ -262,6 +295,37 @@ local provider
 
 All should satisfy the same interface, so the rest of the RAG pipeline does not care which embedding model is being used.
 
+### Vector Index Interface
+
+The vector search layer is also provider-agnostic.
+
+```text
+HNSW today
+FAISS later
+Qdrant/Milvus/Pinecone later
+```
+
+The retrieval pipeline should call:
+
+```text
+index.add(records)
+index.search(query_vector, top_k)
+```
+
+not hardcode one vector database everywhere.
+
+### HNSW Vector Index
+
+HNSW is the first concrete vector index in this project.
+
+It keeps a mapping between internal integer labels and my original vector records:
+
+```text
+hnsw label -> record_id -> chunk_id -> document_id -> metadata
+```
+
+That lineage matters because semantic search results eventually need citations, audits, and debugging.
+
 ## Setup
 
 ```powershell
@@ -274,6 +338,12 @@ For local Hugging Face embeddings:
 
 ```powershell
 python -m pip install -e ".[dev,huggingface]"
+```
+
+For local vector search with HNSW:
+
+```powershell
+python -m pip install -e ".[dev,huggingface,vector]"
 ```
 
 If activation is blocked:
@@ -355,6 +425,20 @@ data/embeddings/wikipedia/*.json
 data/manifests/embedding_manifest.jsonl
 ```
 
+## Vector Index Layer
+
+The vector layer is available as a clean Python interface:
+
+```python
+from enterprise_rag.vector_store import HNSWVectorIndex, VectorRecord
+
+index = HNSWVectorIndex(dimensions=384, metric="cosine")
+index.add([vector_record])
+results = index.search(query_vector, top_k=5)
+```
+
+This is the base for semantic retrieval before hybrid search.
+
 ## Roadmap
 
 ### Done
@@ -373,10 +457,13 @@ data/manifests/embedding_manifest.jsonl
 - Add Hugging Face embedding provider
 - Batch embed chunk records
 - Persist vectors with metadata
+- Add vector index interface
+- Add HNSW vector index
 
 ### Next
 
-- Add vector search
+- Load saved embedding JSON into HNSW
+- Search saved embeddings semantically
 - Combine BM25 + vector retrieval
 - Add reranking
 - Add evidence packs and citations
@@ -392,7 +479,7 @@ LLM + vector database
 RAG is:
 
 ```text
-clean documents + traceable chunks + measurable retrieval + provider-agnostic embeddings + grounded generation
+clean documents + traceable chunks + measurable retrieval + provider-agnostic embeddings + swappable vector search + grounded generation
 ```
 
 One-line takeaway:
