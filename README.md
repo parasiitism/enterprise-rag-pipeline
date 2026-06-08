@@ -4,8 +4,9 @@
 ![LangChain](https://img.shields.io/badge/LangChain-Chunking-1C3C3C?style=for-the-badge)
 ![BM25](https://img.shields.io/badge/Retrieval-BM25-F97316?style=for-the-badge)
 ![HNSW](https://img.shields.io/badge/Vector%20Search-HNSW-DB2777?style=for-the-badge)
+![Hybrid](https://img.shields.io/badge/Hybrid-BM25%20%2B%20HNSW-7C3AED?style=for-the-badge)
 ![Evaluation](https://img.shields.io/badge/Eval-Hit%40K-2563EB?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Step%206.2%20HNSW%20Vector%20Index-22C55E?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Step%207%20Hybrid%20Retrieval-22C55E?style=for-the-badge)
 
 I am building this as a practical enterprise-style RAG pipeline, one layer at a time.
 
@@ -28,7 +29,7 @@ messy ingestion -> weak chunks -> poor retrieval -> bad context -> confident wro
 So I am building the pipeline from the ground up:
 
 ```text
-raw source -> canonical document -> traceable chunks -> retrieval -> evaluation -> embeddings -> hybrid search
+raw source -> canonical document -> traceable chunks -> BM25 + HNSW retrieval -> evaluation
 ```
 
 No shortcut. No hidden magic.
@@ -143,6 +144,41 @@ saved embedding vectors
 
 HNSW gives the project a scalable semantic retrieval path without jumping straight into external vector database infrastructure.
 
+### Step 6.3: Semantic Search over Saved Embeddings
+
+Completed the loader and CLI for searching saved embedding JSON files.
+
+```text
+data/embeddings/wikipedia/*.json
+  -> VectorRecord
+  -> HNSWVectorIndex
+  -> query embedding
+  -> semantic top-k chunks
+```
+
+This proves that the project can move from persisted chunk vectors to actual semantic retrieval.
+
+### Step 7: Hybrid Retrieval
+
+Completed the first hybrid retrieval layer.
+
+```text
+user query
+  -> BM25 keyword search
+  -> Hugging Face query embedding
+  -> HNSW semantic search
+  -> Reciprocal Rank Fusion
+  -> final ranked evidence chunks
+```
+
+BM25 catches exact terms like names, IDs, error codes, policy numbers, and rare phrases.
+
+HNSW semantic search catches meaning when the user asks with different wording.
+
+The results are fused with Reciprocal Rank Fusion instead of directly comparing BM25 scores with vector similarity scores. This keeps the ranking practical and avoids pretending that two different score systems mean the same thing.
+
+This is the first real enterprise-style retrieval layer in the project.
+
 ## Colored Workflow
 
 ```mermaid
@@ -160,9 +196,11 @@ flowchart TD
     K --> L["Batch Embeddings<br/>chunk vectors + metadata"]
     L --> P["VectorIndex Interface<br/>swappable vector boundary"]
     P --> Q["HNSW Vector Index<br/>local ANN search"]
-    H --> M["Next: Hybrid Retrieval<br/>BM25 + HNSW"]
-    Q --> M
-    M --> N["Later: Evidence Packs<br/>reranking + citations"]
+    Q --> R["Semantic Search CLI<br/>saved embeddings -> top-k"]
+    H --> M["Hybrid Retrieval<br/>BM25 + HNSW"]
+    R --> M
+    M --> S["Reciprocal Rank Fusion<br/>rank-based merge"]
+    S --> N["Later: Evidence Packs<br/>reranking + citations"]
     N --> O["Later: Grounded Answers<br/>answer only from evidence"]
 
     classDef raw fill:#FEF3C7,stroke:#D97706,color:#111827,stroke-width:2px;
@@ -182,8 +220,9 @@ flowchart TD
     class H retrieval;
     class I eval;
     class J,K,L embed;
-    class P,Q vector;
-    class M,N,O later;
+    class P,Q,R vector;
+    class M,S retrieval;
+    class N,O later;
 ```
 
 ## Project Structure
@@ -201,6 +240,8 @@ enterprise-rag-pipeline/
       embedding_store.py
       embed_chunks.py
       search_chunks.py
+      search_vectors.py
+      search_hybrid.py
       evaluate_retrieval.py
       embeddings/
         huggingface.py
@@ -212,11 +253,13 @@ enterprise-rag-pipeline/
         retrieval_eval.py
       retrieval/
         bm25.py
+        hybrid.py
         models.py
         tokenizer.py
       vector_store/
         hnsw.py
         indexes.py
+        loaders.py
         models.py
       wikipedia/
         dump_reader.py
@@ -325,6 +368,26 @@ hnsw label -> record_id -> chunk_id -> document_id -> metadata
 ```
 
 That lineage matters because semantic search results eventually need citations, audits, and debugging.
+
+### Hybrid Retrieval
+
+The hybrid retriever combines BM25 and HNSW instead of choosing one.
+
+```text
+BM25 result rank      -> exact keyword confidence
+Semantic result rank  -> meaning-based confidence
+RRF fused rank        -> final evidence ordering
+```
+
+This matters because enterprise queries often mix both worlds:
+
+```text
+"What does policy HR-EXP-204 say about reimbursement deadline?"
+```
+
+The policy ID needs keyword precision. The reimbursement wording needs semantic matching.
+
+Hybrid retrieval gives the pipeline a stronger evidence set before reranking and generation.
 
 ## Setup
 
@@ -439,6 +502,28 @@ results = index.search(query_vector, top_k=5)
 
 This is the base for semantic retrieval before hybrid search.
 
+## Search Saved Embeddings with HNSW
+
+```powershell
+.\.venv\Scripts\python.exe -m enterprise_rag.search_vectors data\embeddings\wikipedia "anarchism political philosophy" --top-k 5 --limit 100
+```
+
+## Hybrid Search with BM25 + HNSW
+
+```powershell
+.\.venv\Scripts\python.exe -m enterprise_rag.search_hybrid data\chunks\wikipedia data\embeddings\wikipedia "anarchism political philosophy" --top-k 5 --limit 100
+```
+
+The output shows whether each result came from:
+
+```text
+bm25
+semantic
+bm25, semantic
+```
+
+That visibility is useful for debugging retrieval quality.
+
 ## Roadmap
 
 ### Done
@@ -459,14 +544,17 @@ This is the base for semantic retrieval before hybrid search.
 - Persist vectors with metadata
 - Add vector index interface
 - Add HNSW vector index
+- Load saved embedding JSON files into vector records
+- Run semantic search over saved embeddings
+- Combine BM25 + HNSW semantic search with hybrid retrieval
+- Fuse retrieval results with Reciprocal Rank Fusion
 
 ### Next
 
-- Load saved embedding JSON into HNSW
-- Search saved embeddings semantically
-- Combine BM25 + vector retrieval
 - Add reranking
 - Add evidence packs and citations
+- Add retrieval confidence scoring
+- Add generation guardrails
 
 ## My Current Mental Model
 
