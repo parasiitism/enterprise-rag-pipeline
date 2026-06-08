@@ -16,6 +16,10 @@ My rule for this project:
 
 > The LLM should only answer from evidence the pipeline can retrieve, rank, evaluate, and trace.
 
+Detailed build notes:
+
+[Enterprise RAG Build Notes](docs/enterprise-rag-build-notes.md)
+
 ## Why This Exists
 
 Most RAG failures do not start inside the model.
